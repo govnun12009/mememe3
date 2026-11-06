@@ -1,1 +1,215 @@
+import sqlite3
+import random
+import time
+from datetime import datetime
+
+def init_db():
+
+    conn = sqlite3.connect("cinema_cli.db") 
+    cursor = conn.cursor()
+    
+
+    cursor.execute("PRAGMA foreign_keys = ON;")
+    
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS movies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT UNIQUE,
+            duration INTEGER
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS halls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            rows INTEGER,
+            seats_per_row INTEGER
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            movie_id INTEGER,
+            hall_id INTEGER,
+            time TEXT,
+            base_price REAL,
+            FOREIGN KEY(movie_id) REFERENCES movies(id),
+            FOREIGN KEY(hall_id) REFERENCES halls(id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tickets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            row_num INTEGER,
+            seat_num INTEGER,
+            purchase_time TEXT,
+            FOREIGN KEY(session_id) REFERENCES sessions(id)
+        )
+    ''')
+    
+    # Заполнение первичными данными без дублирования (INSERT OR IGNORE)
+    cursor.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES ('admin', 'admin123', 'Manager')")
+    cursor.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES ('cashier', '123', 'Cashier')")
+    
+    cursor.execute("INSERT OR IGNORE INTO movies (id, title, duration) VALUES (1, 'Интерстеллар', 169)")
+    cursor.execute("INSERT OR IGNORE INTO movies (id, title, duration) VALUES (2, 'Начало', 148)")
+    
+    cursor.execute("INSERT OR IGNORE INTO halls (id, name, rows, seats_per_row) VALUES (1, 'Синий зал', 5, 10)")
+    cursor.execute("INSERT OR IGNORE INTO halls (id, name, rows, seats_per_row) VALUES (2, 'IMAX зал', 10, 12)")
+    
+    cursor.execute("INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (1, 1, 1, '18:00', 350.0)")
+    cursor.execute("INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (2, 2, 2, '21:00', 500.0)")
+    
+    conn.commit()
+    return conn
+
+
+def login(conn):
+    print("\n--- СИСТЕМА АВТОРИЗАЦИИ ---")
+    username = input("Логин (admin / cashier): ")
+    password = input("Пароль (admin123 / 123): ")
+    
+    cursor = conn.cursor()
+    cursor.execute("SELECT role FROM users WHERE username=? AND password=?", (username, password))
+    user = cursor.fetchone()
+    
+    if user:
+        role = user[0]
+        print(f" Successful! Добро пожаловать, {username} ({role}).")
+        return role
+    else:
+        print(" Ошибка: Неверный логин или пароль.")
+        return None
+
+def run_computational_experiment(conn):
+    print("\n--- ЗАПУСК ВЫЧИСЛИТЕЛЬНОГО ЭКСПЕРИМЕНТА ---")
+    print("Задача: Смоделировать до 100 транзакций случайных групп клиентов на сеанс 'Интерстеллар' (50 мест).")
+    
+    cursor = conn.cursor()
+   
+    cursor.execute("DELETE FROM tickets WHERE session_id = 1")
+    
+    cursor.execute("""
+        SELECT s.id, h.rows, h.seats_per_row, s.base_price 
+        FROM sessions s JOIN halls h ON s.hall_id = h.id WHERE s.id = 1
+    """)
+    session_id, rows, seats_per_row, price = cursor.fetchone()
+    
+    total_seats = rows * seats_per_row
+    sold_seats = 0
+    total_revenue = 0.0
+    transactions_processed = 0
+    
+    hall_map = [[0 for _ in range(seats_per_row)] for _ in range(rows)]
+    start_time = time.time()
+    
+    for i in range(1, 101):
+        if sold_seats >= total_seats:
+            print(f"[Транзакция {i}]: Аншлаг! Все билеты распроданы.")
+            break
+            
+        group_size = random.randint(1, 4)
+        booked = False
+        
+        for r in range(rows):
+            for s in range(seats_per_row - group_size + 1):
+                if all(hall_map[r][s + k] == 0 for k in range(group_size)):
+                    for k in range(group_size):
+                        hall_map[r][s + k] = 1
+                        cursor.execute("""
+                            INSERT INTO tickets (session_id, row_num, seat_num, purchase_time) 
+                            VALUES (?, ?, ?, ?)
+                        """, (session_id, r + 1, s + k + 1, str(datetime.now())))
+                    
+                    sold_seats += group_size
+                    total_revenue += group_size * price
+                    transactions_processed += 1
+                    booked = True
+                    break
+            if booked: 
+                break
+
+    conn.commit()
+    end_time = time.time()
+    
+    occupancy_rate = (sold_seats / total_seats) * 100
+    print("\nРезультаты эксперимента (Сохранены в БД):")
+    print(f"- Обработано успешных транзакций: {transactions_processed}")
+    print(f"- Продано мест: {sold_seats} из {total_seats} ({occupancy_rate:.2f}%)")
+    print(f"- Общая выручка: {total_revenue} руб.")
+    print(f"- Время обсчета модели: {(end_time - start_time) * 1000:.4f} мс")
+def main():
+    db_conn = init_db()
+    role = None
+    
+    while True:
+        if not role:
+            role = login(db_conn)
+            if not role: 
+                continue
+            
+        print("\n--- МЕНЮ СЕРВИСА КИНОТЕАТРА ---")
+        print("1. Показать доступные сеансы")
+        print("2. Продать билет ручным вводом")
+        if role == 'Manager':
+            print("3. Запустить вычислительный эксперимент (Менеджер)")
+        print("4. Выйти из аккаунта")
+        print("5. Завершить работу")
+        
+        choice = input("Выберите действие: ")
+        cursor = db_conn.cursor()
+        
+        if choice == '1':
+            cursor.execute("""
+                SELECT s.id, m.title, h.name, s.time, s.base_price 
+                FROM sessions s 
+                JOIN movies m ON s.movie_id = m.id 
+                JOIN halls h ON s.hall_id = h.id
+            """)
+            print("\nСписок сеансов:")
+            for row in cursor.fetchall():
+                print(f"ID: {row[0]} | Фильм: '{row[1]}' | Зал: {row[2]} | Время: {row[3]} | Цена: {row[4]} руб.")
+                
+        elif choice == '2':
+            session_id = input("Введите ID сеанса: ")
+            row_num = input("Ряд: ")
+            seat_num = input("Место: ")
+            try:
+                cursor.execute("""
+                    INSERT INTO tickets (session_id, row_num, seat_num, purchase_time) 
+                    VALUES (?, ?, ?, ?)
+                """, (session_id, row_num, seat_num, str(datetime.now())))
+                db_conn.commit()
+                print(" Билет успешно сохранен в файл базы данных!")
+            except Exception as e:
+                print(" Ошибка при оформлении:", e)
+                
+        elif choice == '3' and role == 'Manager':
+            run_computational_experiment(db_conn)
+            
+        elif choice == '4':
+            role = None
+            print("Вы успешно вышли из профиля.")
+            
+        elif choice == '5':
+            db_conn.close()
+            print("Связь с базой данных закрыта. Работа завершена.")
+            break
+
+if __name__ == "__main__":
+    main()
 
