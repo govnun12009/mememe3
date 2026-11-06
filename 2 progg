@@ -1,1 +1,134 @@
+import tkinter as tk
+from tkinter import messagebox
+import sqlite3
+
+class CinemaApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("КиноСервис PRO")
+        self.root.geometry("600x500")  # Ошибка геометрии полностью исправлена
+        
+        # Данные сохраняются в локальный файл cinema_gui.db
+        self.conn = sqlite3.connect("cinema_gui.db")
+        self.create_tables()
+        
+        self.current_user = None
+        self.selected_session = 1  # По умолчанию сеанс №1
+        
+        # Запуск с экрана авторизации
+        self.show_login_screen()
+
+    def create_tables(self):
+        cursor = self.conn.cursor()
+        # Защита таблиц от перезаписи при перезапуске
+        cursor.execute("CREATE TABLE IF NOT EXISTS users (user TEXT UNIQUE, password TEXT, role TEXT)")
+        cursor.execute("CREATE TABLE IF NOT EXISTS tickets (session_id INT, row INT, seat INT)")
+        
+        # Наполнение пользователями кинотеатра без дублирования
+        cursor.execute("INSERT OR IGNORE INTO users VALUES ('cashier', '123', 'Cashier')")
+        cursor.execute("INSERT OR IGNORE INTO users VALUES ('manager', 'admin', 'Manager')")
+        self.conn.commit()
+
+
+    def show_login_screen(self):
+        self.clear_screen()
+        
+        tk.Label(self.root, text="Вход в систему", font=("Arial", 16, "bold")).pack(pady=20)
+        
+        tk.Label(self.root, text="Пользователь (cashier / manager):", font=("Arial", 10)).pack()
+        self.entry_user = tk.Entry(self.root, font=("Arial", 10))
+        self.entry_user.pack(pady=5)
+        
+        tk.Label(self.root, text="Пароль (123 / admin):", font=("Arial", 10)).pack()
+        self.entry_pass = tk.Entry(self.root, show="*", font=("Arial", 10))
+        self.entry_pass.pack(pady=5)
+        
+        tk.Button(self.root, text="Войти", width=15, command=self.handle_login).pack(pady=15)
+
+    def handle_login(self):
+        u = self.entry_user.get()
+        p = self.entry_pass.get()
+        
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT role FROM users WHERE user=? AND password=?", (u, p))
+        res = cursor.fetchone()
+        
+        if res:
+            self.current_user = u
+            self.show_main_screen()
+        else:
+            messagebox.showerror("Ошибка", "Неверные учетные данные!")
+
+
+    def show_main_screen(self):
+        self.clear_screen()
+        
+        # Вычислительный эксперимент: Динамическая цена
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tickets WHERE session_id=?", (self.selected_session,))
+        sold_count = cursor.fetchone()[0]
+        
+        # Рост цены ровно на 300 рублей за каждый проданный билет
+        current_price = 300 + (sold_count * 300) 
+        
+        # Интерфейс верхнего уровня
+        top_frame = tk.Frame(self.root)
+        top_frame.pack(fill="x", padx=10, pady=5)
+        
+        tk.Label(top_frame, text=f"Оператор: {self.current_user}", fg="gray").pack(side="left")
+        tk.Label(top_frame, text=f"Текущая цена билета: {current_price} руб.", font=("Arial", 11, "bold"), fg="green").pack(side="right")
+        
+        tk.Label(self.root, text="ЭКРАН КИНОТЕАТРА", bg="lightgray", width=50).pack(pady=15)
+        
+        # Сетка мест (5 рядов на 6 мест)
+        grid_frame = tk.Frame(self.root)
+        grid_frame.pack()
+        
+        # Получаем список уже купленных мест из файла
+        cursor.execute("SELECT row, seat FROM tickets WHERE session_id=?", (self.selected_session,))
+        bought_seats = cursor.fetchall()
+        
+        for r in range(1, 6):
+            tk.Label(grid_frame, text=f"Ряд {r}").grid(row=r, column=0, padx=5)
+            for s in range(1, 7):
+                is_taken = (r, s) in bought_seats
+                btn_color = "red" if is_taken else "green"
+                state = "disabled" if is_taken else "normal"
+                
+                btn = tk.Button(
+                    grid_frame, 
+                    text=f"{s}", 
+                    bg=btn_color, 
+                    fg="white",
+                    width=4, 
+                    state=state,
+                    command=lambda row=r, seat=s: self.buy_ticket(row, seat)
+                )
+                btn.grid(row=r, column=s, padx=2, pady=2)
+                
+        # Кнопка сброса/очистки для демонстрации
+        tk.Button(self.root, text="Сбросить все места (Новый эксперимент)", command=self.reset_hall, bg="orange").pack(pady=20)
+        tk.Button(self.root, text="Выйти", command=self.show_login_screen).pack()
+
+    def buy_ticket(self, row, seat):
+        cursor = self.conn.cursor()
+        cursor.execute("INSERT INTO tickets VALUES (?, ?, ?)", (self.selected_session, row, seat))
+        self.conn.commit()
+        messagebox.showinfo("Успех", f"Билет на Ряд {row}, Место {seat} успешно сохранен в файл БД!")
+        self.show_main_screen()
+
+    def reset_hall(self):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM tickets WHERE session_id=?", (self.selected_session,))
+        self.conn.commit()
+        self.show_main_screen()
+
+    def clear_screen(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = CinemaApp(root)
+    root.mainloop()
 
