@@ -1,4 +1,4 @@
-# mememe3
+Debug/proggs
 
 
 
@@ -16,6 +16,13 @@ progg 2
 <img width="645" height="605" alt="image" src="https://github.com/user-attachments/assets/8d45dc35-31ed-4bcd-9dce-c89d35f87913" />
 
 <img width="643" height="601" alt="image" src="https://github.com/user-attachments/assets/745e0723-fed8-4f37-bbf5-050d1e9c5bfb" />
+
+
+debug progg 1
+<img width="1257" height="224" alt="Снимок экрана 2026-11-10 172937" src="https://github.com/user-attachments/assets/f6f5ca85-4365-46fa-b09c-7ce5a26df5f3" />
+
+debug progg 2
+<img width="1253" height="275" alt="Снимок экрана 2026-11-10 173230" src="https://github.com/user-attachments/assets/18b257a3-d6ba-43cc-8fff-74127b71b5ae" />
 
 
 
