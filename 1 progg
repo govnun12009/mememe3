@@ -2,15 +2,15 @@ import sqlite3
 import random
 import time
 from datetime import datetime
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+
 
 def init_db():
-
-    conn = sqlite3.connect("cinema_cli.db") 
+    conn = sqlite3.connect("cinema_cli.db")
     cursor = conn.cursor()
-    
-
     cursor.execute("PRAGMA foreign_keys = ON;")
-    
 
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -20,7 +20,6 @@ def init_db():
             role TEXT
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS movies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +27,6 @@ def init_db():
             duration INTEGER
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS halls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +35,6 @@ def init_db():
             seats_per_row INTEGER
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +46,6 @@ def init_db():
             FOREIGN KEY(hall_id) REFERENCES halls(id)
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tickets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,166 +53,271 @@ def init_db():
             row_num INTEGER,
             seat_num INTEGER,
             purchase_time TEXT,
-            FOREIGN KEY(session_id) REFERENCES sessions(id)
+            FOREIGN KEY(session_id) REFERENCES sessions(id),
+            UNIQUE(session_id, row_num, seat_num)
         )
     ''')
-    
-    # Заполнение первичными данными без дублирования (INSERT OR IGNORE)
+
     cursor.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES ('admin', 'admin123', 'Manager')")
     cursor.execute("INSERT OR IGNORE INTO users (username, password, role) VALUES ('cashier', '123', 'Cashier')")
-    
     cursor.execute("INSERT OR IGNORE INTO movies (id, title, duration) VALUES (1, 'Интерстеллар', 169)")
     cursor.execute("INSERT OR IGNORE INTO movies (id, title, duration) VALUES (2, 'Начало', 148)")
-    
     cursor.execute("INSERT OR IGNORE INTO halls (id, name, rows, seats_per_row) VALUES (1, 'Синий зал', 5, 10)")
     cursor.execute("INSERT OR IGNORE INTO halls (id, name, rows, seats_per_row) VALUES (2, 'IMAX зал', 10, 12)")
-    
-    cursor.execute("INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (1, 1, 1, '18:00', 350.0)")
-    cursor.execute("INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (2, 2, 2, '21:00', 500.0)")
-    
+    cursor.execute(
+        "INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (1, 1, 1, '18:00', 350.0)")
+    cursor.execute(
+        "INSERT OR IGNORE INTO sessions (id, movie_id, hall_id, time, base_price) VALUES (2, 2, 2, '21:00', 500.0)")
+
     conn.commit()
     return conn
 
 
-def login(conn):
-    print("\n--- СИСТЕМА АВТОРИЗАЦИИ ---")
-    username = input("Логин (admin / cashier): ")
-    password = input("Пароль (admin123 / 123): ")
-    
-    cursor = conn.cursor()
-    cursor.execute("SELECT role FROM users WHERE username=? AND password=?", (username, password))
-    user = cursor.fetchone()
-    
-    if user:
-        role = user[0]
-        print(f" Successful! Добро пожаловать, {username} ({role}).")
-        return role
-    else:
-        print(" Ошибка: Неверный логин или пароль.")
-        return None
+class CinemaApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Система управления кинотеатром")
+        self.root.geometry("650x500")
 
-def run_computational_experiment(conn):
-    print("\n--- ЗАПУСК ВЫЧИСЛИТЕЛЬНОГО ЭКСПЕРИМЕНТА ---")
-    print("Задача: Смоделировать до 100 транзакций случайных групп клиентов на сеанс 'Интерстеллар' (50 мест).")
-    
-    cursor = conn.cursor()
-   
-    cursor.execute("DELETE FROM tickets WHERE session_id = 1")
-    
-    cursor.execute("""
-        SELECT s.id, h.rows, h.seats_per_row, s.base_price 
-        FROM sessions s JOIN halls h ON s.hall_id = h.id WHERE s.id = 1
-    """)
-    session_id, rows, seats_per_row, price = cursor.fetchone()
-    
-    total_seats = rows * seats_per_row
-    sold_seats = 0
-    total_revenue = 0.0
-    transactions_processed = 0
-    
-    hall_map = [[0 for _ in range(seats_per_row)] for _ in range(rows)]
-    start_time = time.time()
-    
-    for i in range(1, 101):
-        if sold_seats >= total_seats:
-            print(f"[Транзакция {i}]: Аншлаг! Все билеты распроданы.")
-            break
-            
-        group_size = random.randint(1, 4)
-        booked = False
-        
-        for r in range(rows):
-            for s in range(seats_per_row - group_size + 1):
-                if all(hall_map[r][s + k] == 0 for k in range(group_size)):
-                    for k in range(group_size):
-                        hall_map[r][s + k] = 1
-                        cursor.execute("""
-                            INSERT INTO tickets (session_id, row_num, seat_num, purchase_time) 
-                            VALUES (?, ?, ?, ?)
-                        """, (session_id, r + 1, s + k + 1, str(datetime.now())))
-                    
-                    sold_seats += group_size
-                    total_revenue += group_size * price
-                    transactions_processed += 1
-                    booked = True
-                    break
-            if booked: 
-                break
+        self.db_conn = init_db()
+        self.current_user = None
+        self.current_role = None
 
-    conn.commit()
-    end_time = time.time()
-    
-    occupancy_rate = (sold_seats / total_seats) * 100
-    print("\nРезультаты эксперимента (Сохранены в БД):")
-    print(f"- Обработано успешных транзакций: {transactions_processed}")
-    print(f"- Продано мест: {sold_seats} из {total_seats} ({occupancy_rate:.2f}%)")
-    print(f"- Общая выручка: {total_revenue} руб.")
-    print(f"- Время обсчета модели: {(end_time - start_time) * 1000:.4f} мс")
-def main():
-    db_conn = init_db()
-    role = None
-    
-    while True:
-        if not role:
-            role = login(db_conn)
-            if not role: 
-                continue
-            
-        print("\n--- МЕНЮ СЕРВИСА КИНОТЕАТРА ---")
-        print("1. Показать доступные сеансы")
-        print("2. Продать билет ручным вводом")
-        if role == 'Manager':
-            print("3. Запустить вычислительный эксперимент (Менеджер)")
-        print("4. Выйти из аккаунта")
-        print("5. Завершить работу")
-        
-        choice = input("Выберите действие: ")
-        cursor = db_conn.cursor()
-        
-        if choice == '1':
-            cursor.execute("""
-                SELECT s.id, m.title, h.name, s.time, s.base_price 
-                FROM sessions s 
-                JOIN movies m ON s.movie_id = m.id 
-                JOIN halls h ON s.hall_id = h.id
-            """)
-            print("\nСписок сеансов:")
-            for row in cursor.fetchall():
-                print(f"ID: {row[0]} | Фильм: '{row[1]}' | Зал: {row[2]} | Время: {row[3]} | Цена: {row[4]} руб.")
-                
-        elif choice == '2':
-            session_id = input("Введите ID сеанса: ")
-            row_num = input("Ряд: ")
-            seat_num = input("Место: ")
+        # Контейнер для динамической смены экранов
+        self.main_container = ttk.Frame(self.root, padding=20)
+        self.main_container.pack(fill="both", expand=True)
+
+        # Сразу запускаем экран авторизации при старте приложения
+        self.show_login_screen()
+
+    def clear_container(self):
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
+
+    def show_login_screen(self):
+        self.clear_container()
+
+        title = ttk.Label(self.main_container, text="Авторизация в системе", font=("Arial", 16, "bold"))
+        title.pack(pady=20)
+
+        frame = ttk.Frame(self.main_container)
+        frame.pack(pady=10)
+
+        ttk.Label(frame, text="Логин:").grid(row=0, column=0, sticky="w", pady=5)
+        self.login_entry = ttk.Entry(frame, width=25)
+        self.login_entry.grid(row=0, column=1, padx=10, pady=5)
+        self.login_entry.insert(0, "admin")  # Подсказка по умолчанию для быстрого теста
+
+        ttk.Label(frame, text="Пароль:").grid(row=1, column=0, sticky="w", pady=5)
+        self.pass_entry = ttk.Entry(frame, show="*", width=25)
+        self.pass_entry.grid(row=1, column=1, padx=10, pady=5)
+        self.pass_entry.insert(0, "admin123")  # Подсказка по умолчанию для быстрого теста
+
+        btn_login = ttk.Button(self.main_container, text="Войти", command=self.handle_login)
+        btn_login.pack(pady=20)
+
+    def handle_login(self):
+        username = self.login_entry.get().strip()
+        password = self.pass_entry.get().strip()
+
+        cursor = self.db_conn.cursor()
+        cursor.execute("SELECT role FROM users WHERE username=? AND password=?", (username, password))
+        user = cursor.fetchone()
+
+        if user:
+            self.current_user = username
+            self.current_role = user[0]
+            messagebox.showinfo("Успех", f"Добро пожаловать, {username} ({self.current_role})!")
+            self.show_main_menu()
+        else:
+            messagebox.showerror("Ошибка", "Неверный логин или пароль!")
+
+
+    def show_main_menu(self):
+        self.clear_container()
+
+        # Шапка профиля
+        header = ttk.Label(self.main_container, text=f"Пользователь: {self.current_user} | Роль: {self.current_role}",
+                           font=("Arial", 10, "italic"))
+        header.pack(anchor="e", pady=5)
+
+        # Таблица сеансов
+        table_label = ttk.Label(self.main_container, text="Доступные сеансы:", font=("Arial", 12, "bold"))
+        table_label.pack(anchor="w", pady=5)
+
+        # Настройка таблицы (Treeview)
+        columns = ("id", "movie", "hall", "time", "price")
+        self.tree = ttk.Treeview(self.main_container, columns=columns, show="headings", height=6)
+        self.tree.heading("id", text="ID")
+        self.tree.heading("movie", text="Фильм")
+        self.tree.heading("hall", text="Зал")
+        self.tree.heading("time", text="Время")
+        self.tree.heading("price", text="Цена (руб.)")
+
+        self.tree.column("id", width=40, anchor="center")
+        self.tree.column("movie", width=150, anchor="w")
+        self.tree.column("hall", width=100, anchor="center")
+        self.tree.column("time", width=80, anchor="center")
+        self.tree.column("price", width=90, anchor="center")
+        self.tree.pack(fill="x", pady=10)
+
+        self.load_sessions()
+
+        # Блок кнопок управления
+        btn_frame = ttk.Frame(self.main_container)
+        btn_frame.pack(fill="x", pady=15)
+
+        btn_buy = ttk.Button(btn_frame, text="Купить билет на выбранный сеанс", command=self.open_ticket_booking)
+        btn_buy.grid(row=0, column=0, padx=5, pady=5, sticky="we")
+
+        if self.current_role == "Manager":
+            btn_exp = ttk.Button(btn_frame, text="Запустить симуляцию (Сеанс 1)", command=self.run_experiment)
+            btn_exp.grid(row=0, column=1, padx=5, pady=5, sticky="we")
+
+        btn_logout = ttk.Button(btn_frame, text="Выйти из аккаунта", command=self.show_login_screen)
+        btn_logout.grid(row=1, column=0, padx=5, pady=5, sticky="we")
+
+        btn_exit = ttk.Button(btn_frame, text="Завершить работу", command=self.root.quit)
+        btn_exit.grid(row=1, column=1, padx=5, pady=5, sticky="we")
+
+    def load_sessions(self):
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            SELECT s.id, m.title, h.name, s.time, s.base_price 
+            FROM sessions s 
+            JOIN movies m ON s.movie_id = m.id 
+            JOIN halls h ON s.hall_id = h.id
+        """)
+        for row in cursor.fetchall():
+            self.tree.insert("", "end", values=row)
+
+
+    def open_ticket_booking(self):
+        selected_item = self.tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Внимание", "Пожалуйста, выберите сеанс из таблицы!")
+            return
+
+        session_values = self.tree.item(selected_item, "values")
+        session_id = session_values[0]
+
+        cursor = self.db_conn.cursor()
+        cursor.execute("""
+            SELECT s.id, h.rows, h.seats_per_row, m.title, h.name, s.time 
+            FROM sessions s 
+            JOIN halls h ON s.hall_id = h.id 
+            JOIN movies m ON s.movie_id = m.id
+            WHERE s.id = ?
+        """, (session_id,))
+        session_data = cursor.fetchone()
+
+        self.show_booking_screen(session_data)
+
+    def show_booking_screen(self, session_data):
+        self.clear_container()
+        session_id, rows, seats_per_row, movie_title, hall_name, time_str = session_data
+
+        title = ttk.Label(self.main_container, text="Оформление билета", font=("Arial", 14, "bold"))
+        title.pack(pady=10)
+
+        info_frame = ttk.LabelFrame(self.main_container, text=" Информация о сеансе ", padding=10)
+        info_frame.pack(fill="x", pady=10)
+        ttk.Label(info_frame, text=f"Фильм: {movie_title}").pack(anchor="w")
+        ttk.Label(info_frame, text=f"Зал: {hall_name} | Время: {time_str}").pack(anchor="w")
+        ttk.Label(info_frame, text=f"Доступно рядов: {rows}, мест в ряду: {seats_per_row}").pack(anchor="w")
+
+        input_frame = ttk.Frame(self.main_container)
+        input_frame.pack(pady=15)
+
+        ttk.Label(input_frame, text="Ряд:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        row_spin = ttk.Spinbox(input_frame, from_=1, to=rows, width=8)
+        row_spin.grid(row=0, column=1, padx=5, pady=5)
+        row_spin.set(1)
+
+        ttk.Label(input_frame, text="Место:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        seat_spin = ttk.Spinbox(input_frame, from_=1, to=seats_per_row, width=8)
+        seat_spin.grid(row=1, column=1, padx=5, pady=5)
+        seat_spin.set(1)
+
+        def confirm_purchase():
             try:
+                r_num = int(row_spin.get())
+                s_num = int(seat_spin.get())
+
+                cursor = self.db_conn.cursor()
                 cursor.execute("""
                     INSERT INTO tickets (session_id, row_num, seat_num, purchase_time) 
                     VALUES (?, ?, ?, ?)
-                """, (session_id, row_num, seat_num, str(datetime.now())))
-                db_conn.commit()
-                print(" Билет успешно сохранен в файл базы данных!")
-            except Exception as e:
-                print(" Ошибка при оформлении:", e)
-                
-        elif choice == '3' and role == 'Manager':
-            run_computational_experiment(db_conn)
-            
-        elif choice == '4':
-            role = None
-            print("Вы успешно вышли из профиля.")
-            
-        elif choice == '5':
-            db_conn.close()
-            print("Связь с базой данных закрыта. Работа завершена.")
-            break
+                """, (session_id, r_num, s_num, str(datetime.now())))
+                self.db_conn.commit()
+
+                messagebox.showinfo("Успех", f"Билет куплен!\nРяд: {r_num}, Место: {s_num}")
+                self.show_main_menu()
+            except sqlite3.IntegrityError:
+                messagebox.showerror("Ошибка", "Это место уже занято! Выберите другое.")
+            except ValueError:
+                messagebox.showerror("Ошибка", "Пожалуйста, введите корректные числа.")
+
+        btn_confirm = ttk.Button(self.main_container, text="Подтвердить покупку", command=confirm_purchase)
+        btn_confirm.pack(pady=5)
+
+        btn_back = ttk.Button(self.main_container, text="Назад в меню", command=self.show_main_menu)
+        btn_back.pack(pady=5)
+
+
+    def run_experiment(self):
+        cursor = self.db_conn.cursor()
+        cursor.execute("DELETE FROM tickets WHERE session_id = 1")
+
+        cursor.execute("""
+            SELECT s.id, h.rows, h.seats_per_row, s.base_price 
+            FROM sessions s JOIN halls h ON s.hall_id = h.id WHERE s.id = 1
+        """)
+        session_id, rows, seats_per_row, price = cursor.fetchone()
+
+        total_seats = rows * seats_per_row
+        sold_seats = 0
+        total_revenue = 0.0
+        transactions_processed = 0
+        hall_map = [[0 for _ in range(seats_per_row)] for _ in range(rows)]
+
+        start_time = time.time()
+        for i in range(1, 101):
+            if sold_seats >= total_seats:
+                break
+            group_size = random.randint(1, 4)
+            booked = False
+            for r in range(rows):
+                for s in range(seats_per_row - group_size + 1):
+                    if all(hall_map[r][s + k] == 0 for k in range(group_size)):
+                        for k in range(group_size):
+                            hall_map[r][s + k] = 1
+                            cursor.execute("""
+                                INSERT INTO tickets (session_id, row_num, seat_num, purchase_time) 
+                                VALUES (?, ?, ?, ?)
+                            """, (session_id, r + 1, s + k + 1, str(datetime.now())))
+                        sold_seats += group_size
+                        total_revenue += group_size * price
+                        transactions_processed += 1
+                        booked = True
+                        break
+                if booked:
+                    break
+        self.db_conn.commit()
+        end_time = time.time()
+
+        occupancy_rate = (sold_seats / total_seats) * 100
+        res = (
+            f"Обработано транзакций: {transactions_processed}\n"
+            f"Продано мест: {sold_seats} из {total_seats} ({occupancy_rate:.2f}%)\n"
+            f"Общая выручка: {total_revenue} руб.\n"
+            f"Время обсчета: {(end_time - start_time) * 1000:.2f} мс"
+        )
+        messagebox.showinfo("Результаты эксперимента", res)
+        self.show_main_menu()
+
 
 if __name__ == "__main__":
-    main()
-        
-
-
-
-
-
-
-
+    root = tk.Tk()
+    app = CinemaApp(root)
+    root.mainloop()
